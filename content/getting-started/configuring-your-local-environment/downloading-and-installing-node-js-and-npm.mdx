@@ -1,74 +1,170 @@
----
-title: Downloading and installing Node.js and npm
-redirect_from:
-  - /getting-started/installing-node
----
+mkdir itnews-site && cd itnews-site
+npm init -y
+npm i express cors helmet morgan dotenv jsonwebtoken bcryptjs sqlite3
+itnews-site/
+ ├─ server.js              # จุดเริ่มรันเซิร์ฟเวอร์
+ ├─ .env                   # ค่าลับ เช่น JWT_SECRET
+ ├─ src/
+ │   ├─ db.js              # เชื่อมต่อ/คำสั่ง DB + init
+ │   └─ auth.js            # middleware ตรวจ token / สิทธิ์
+ ├─ routes/
+ │   ├─ auth.js            # สมัคร/เข้าสู่ระบบ
+ │   ├─ articles.js        # ข่าว (CRUD + ค้นหา)
+ │   └─ categories.js      # หมวดหมู่
+ └─ client/                # ไฟล์หน้าเว็บ (HTML/JS/CSS)
+PORT=4000
+JWT_SECRET=ใส่สตริงสุ่มยาวๆที่นี่
+server.js
+express(), helmet, cors, morgan
+app.use('/api/auth', ...), app.use('/api/articles', ...), app.use('/api/categories', ...)
+client/
+/api/health
+initDB()
+admin@example.com / Admin@123
+(/api/auth)
+POST /register
+{name, email, password}
+POST /login
+{email, password}
+{ token, user } (JWT) Articles (/api/articles)
+GET / → รายการข่าวสาธารณะ + ค้นหา ?q=ipad&page=1&limit=10&category=ID
+GET /slug/:slug → อ่านข่าวตาม slug
+(ต้องส่ง Authorization: Bearer <token>)
+POST / → แอดมินสร้างข่าวใหม่
+PUT /:id → แอดมินแก้ไขข่าว
+DELETE /:id → แอดมินลบข่าว
+Categories (/api/categories)
+GET / → รายการหมวดหมู่ทั้งหมด
+(ต้องเป็นแอดมิน) POST /, PUT /:id, DELETE /:id
+node server.js
+# เปิด http://localhost:4000
+curl -X POST http://localhost:4000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"Admin@123"}'
+Authorization: Bearer ...
+curl -X POST http://localhost:4000/api/categories \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"iPad"}'
+curl -X POST http://localhost:4000/api/articles \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title":"สรุป iPad รุ่นล่าสุด",
+    "summary":"รวมไฮไลต์ iPad ปีนี้",
+    "content":"รายละเอียดแบบยาว... ใส่รูป/สเปก/ราคา",
+    "cover_image":"https://.../ipad.jpg",
+    "category_id":1,
+    "published":1
+  }'
+http://localhost:4000 (ไฟล์ใน client/ จะดึงข้อมูลจาก /api/articles)
+npm i rss-parser node-fetch
+import Parser from 'rss-parser';
+import fetch from 'node-fetch';
 
-To publish and install packages to and from the public npm registry or a private npm registry, you must install Node.js and the npm command line interface using either a Node version manager or a Node installer. **We strongly recommend using a Node version manager like [nvm](https://github.com/nvm-sh/nvm) to install Node.js and npm.** We do not recommend using a Node installer, since the Node installation process installs npm in a directory with local permissions and can cause permissions errors when you run npm packages globally.
+const parser = new Parser();
+const FEEDS = [
+  // ใส่ RSS ด้านไอที/แอปเปิล/ไอแพด ที่อนุญาตให้ใช้งาน
+  'https://example.com/feed/ipad.xml',
+  'https://example.com/feed/tech.xml'
+];
 
-<Note>
+const API_BASE = process.env.API_BASE || 'http://localhost:4000/api';
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN; // สร้าง token แอดมินแล้วคัดลอกมาใส่ .env
 
-**Note:** to download the latest version of npm, on the command line, run the following command:
+function toSlug(text=''){
+  return text.toLowerCase()
+    .replace(/\s+/g,'-')
+    .replace(/[^\w\-]+/g,'')
+    .replace(/\-\-+/g,'-')
+    .replace(/^-+|-+$/g,'');
+}
 
-```
-npm install -g npm
-```
+async function upsertArticle(item){
+  // แปลง item เป็นโครงสร้างบทความ
+  const title = item.title?.trim() || 'Untitled';
+  const summary = item.contentSnippet?.slice(0, 200) || '';
+  const content = item.content || item['content:encoded'] || item.link || '';
+  const cover_image = item.enclosure?.url || '';
+  const payload = {
+    title,
+    summary,
+    content,
+    cover_image,
+    category_id: 1,  // สมมติหมวด iPad = 1 (แก้ตามจริง)
+    published: 1
+  };
 
-</Note>
+  await fetch(`${API_BASE}/articles`, {
+    method: 'POST',
+    headers: {
+      'Content-Type':'application/json',
+      'Authorization':`Bearer ${ADMIN_TOKEN}`
+    },
+    body: JSON.stringify(payload)
+  });
+}
 
-## Overview
+async function run(){
+  for(const url of FEEDS){
+    try{
+      const feed = await parser.parseURL(url);
+      for(const item of feed.items){
+        // ใส่เงื่อนไขกันโพสต์ซ้ำจาก link หรือ title (เช่น เก็บแฮชไว้)
+        await upsertArticle(item);
+      }
+    }catch(e){
+      console.error('Feed error:', url, e.message);
+    }
+  }
+  console.log('done', new Date().toISOString());
+}
 
-- [Checking your version of npm and Node.js](#checking-your-version-of-npm-and-nodejs)
-- [Using a Node version manager to install Node.js and npm](#using-a-node-version-manager-to-install-nodejs-and-npm)
-- [Using a Node installer to install Node.js and npm](#using-a-node-installer-to-install-nodejs-and-npm)
+run();
+API_BASE=https://โดเมนคุณ/api
+ADMIN_TOKEN=ใส่โทเคนของแอดมินที่ได้จาก /login
+crontab -e
+# ให้รันทุก 20 นาที
+*/20 * * * * cd /path/to/itnews-site && /usr/bin/node scripts/fetch-feeds.js >> logs/fetch.log 2>&1
+<script>
+(async () => {
+  const res = await fetch('/api/articles?limit=12');
+  const { data } = await res.json();
+  const list = document.querySelector('#news-list');
+  list.innerHTML = data.map(a => `
+    <article>
+      <img src="${a.cover_image||''}" alt="">
+      <h3><a href="article.html?slug=${a.slug}">${a.title}</a></h3>
+      <p>${a.summary||''}</p>
+      <small>${a.category_name||''} • ${new Date(a.created_at).toLocaleString()}</small>
+    </article>
+  `).join('');
+})();
+</script>
 
-## Checking your version of npm and Node.js
 
-To see if you already have Node.js and npm installed and check the installed version, run the following commands:
 
-```
-node -v
-npm -v
-```
 
-## Using a Node version manager to install Node.js and npm
 
-Node version managers allow you to install and switch between multiple versions of Node.js and npm on your system so you can test your applications on multiple versions of npm to ensure they work for users on different versions.
 
-### OSX or Linux Node version managers
 
-- [nvm](https://github.com/creationix/nvm)
-- [n](https://github.com/tj/n)
 
-### Windows Node version managers
 
-- [nodist](https://github.com/marcelklehr/nodist)
-- [nvm-windows](https://github.com/coreybutler/nvm-windows)
 
-## Using a Node installer to install Node.js and npm
 
-If you are unable to use a Node version manager, you can use a Node installer to install both Node.js and npm on your system.
 
-- [Node.js installer](https://nodejs.org/en/download/)
-- [NodeSource installer](https://github.com/nodesource/distributions)
 
-If you use Linux, we recommend that you use a NodeSource installer.
 
-### OS X or Windows Node installers
 
-If you're using OS X or Windows, use one of the installers from the [Node.js download page](https://nodejs.org/en/download/). Be sure to install the version labeled **LTS**. Other versions have not yet been tested with npm.
 
-### Linux or other operating systems Node installers
 
-If you're using Linux or another operating system, use one of the following installers:
 
-- [NodeSource installer](https://github.com/nodesource/distributions) (recommended)
-- One of the installers on the [Node.js download page](https://nodejs.org/en/download/)
 
-Or see [this page](https://nodejs.org/en/download/package-manager/) to install npm for Linux in the way many Linux developers prefer.
 
-### Less-common operating systems
 
-For more information on installing Node.js on a variety of operating systems, see [this page][pkg-mgr].
 
-[pkg-mgr]: https://nodejs.org/en/download/package-manager/
+
+
+
+
+
